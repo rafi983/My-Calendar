@@ -18,18 +18,79 @@ import {
   X,
 } from "lucide-react"
 
-// Define a type for calendar events
+// Update CalendarEvent to use hex color
 interface CalendarEvent {
   id: number;
   title: string;
   startTime: string;
   endTime: string;
-  color: string;
-  day: number;
+  color: string; // hex color
+  date: string; // YYYY-MM-DD
   description: string;
   location: string;
   attendees: string[];
   organizer: string;
+}
+
+// Helper: get start of week (Sunday)
+function getStartOfWeek(date: Date) {
+  const d = new Date(date)
+  d.setDate(d.getDate() - d.getDay())
+  d.setHours(0, 0, 0, 0)
+  return d
+}
+
+// Helper: format date as YYYY-MM-DD (local, no timezone shift)
+function formatDate(date: Date) {
+  // Get local date parts
+  const year = date.getFullYear();
+  const month = (date.getMonth() + 1).toString().padStart(2, '0');
+  const day = date.getDate().toString().padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+// Helper: get week days as Date[]
+function getWeekDates(start: Date) {
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(start)
+    d.setDate(start.getDate() + i)
+    return d
+  })
+}
+
+// Helper: get month name
+function getMonthName(date: Date) {
+  return date.toLocaleString('default', { month: 'long', year: 'numeric' })
+}
+
+// Helper: get events from localStorage
+function loadEvents(): CalendarEvent[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const data = localStorage.getItem('calendar-events')
+    return data ? JSON.parse(data) : []
+  } catch {
+    return []
+  }
+}
+
+// Helper: save events to localStorage
+function saveEvents(events: CalendarEvent[]) {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('calendar-events', JSON.stringify(events))
+  }
+}
+
+// Helper: check if color is light
+function isColorLight(hex: string) {
+  if (!hex) return false;
+  const c = hex.substring(1); // strip #
+  const rgb = parseInt(c, 16);
+  const r = (rgb >> 16) & 0xff;
+  const g = (rgb >> 8) & 0xff;
+  const b = (rgb >> 0) & 0xff;
+  // Perceived brightness
+  return (r * 299 + g * 587 + b * 114) / 1000 > 180;
 }
 
 export default function Home() {
@@ -67,198 +128,98 @@ export default function Home() {
     }
   }, [showAIPopup])
 
-  const [currentView, setCurrentView] = useState("week")
-  const [currentMonth, setCurrentMonth] = useState("March 2025")
-  const [currentDate, setCurrentDate] = useState("March 5")
+  // Calendar state
+  const today = new Date()
+  const [weekStart, setWeekStart] = useState(getStartOfWeek(today))
+  const [events, setEvents] = useState<CalendarEvent[]>([])
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null)
+  const [showEventForm, setShowEventForm] = useState(false)
+  const [eventFormData, setEventFormData] = useState<Partial<CalendarEvent>>({})
 
-  const handleEventClick = (event: CalendarEvent) => {
-    setSelectedEvent(event)
+  // Add currentView state for calendar view switching
+  const [currentView, setCurrentView] = useState("week")
+
+  // Load events from localStorage on mount
+  useEffect(() => {
+    setEvents(loadEvents())
+  }, [])
+
+  // Save events to localStorage when changed
+  useEffect(() => {
+    saveEvents(events)
+  }, [events])
+
+  // Navigation handlers
+  const goToPrevWeek = () => setWeekStart(prev => {
+    const d = new Date(prev)
+    d.setDate(d.getDate() - 7)
+    return getStartOfWeek(d)
+  })
+  const goToNextWeek = () => setWeekStart(prev => {
+    const d = new Date(prev)
+    d.setDate(d.getDate() + 7)
+    return getStartOfWeek(d)
+  })
+  const goToToday = () => setWeekStart(getStartOfWeek(new Date()))
+
+  // Event handlers
+  const handleEventClick = (event: CalendarEvent) => setSelectedEvent(event)
+  // Update handleAddEvent to accept a date string
+  const handleAddEvent = (date: string) => {
+    setEventFormData({
+      date,
+      startTime: '09:00',
+      endTime: '10:00',
+      color: '#3b82f6', // default to blue-500 hex
+      title: '',
+      description: '',
+      location: '',
+      attendees: [],
+      organizer: '',
+    })
+    setShowEventForm(true)
+  }
+  const handleEditEvent = (event: CalendarEvent) => {
+    setEventFormData(event)
+    setShowEventForm(true)
+  }
+  const handleDeleteEvent = (id: number) => {
+    setEvents(events.filter(e => e.id !== id))
+    setSelectedEvent(null)
+  }
+  const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target
+    setEventFormData(prev => ({ ...prev, [name]: value }))
+  }
+  const handleFormSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!eventFormData.title || !eventFormData.startTime || !eventFormData.endTime || !eventFormData.date) return
+    if (eventFormData.id) {
+      setEvents(events.map(ev => ev.id === eventFormData.id ? { ...ev, ...eventFormData } as CalendarEvent : ev))
+    } else {
+      setEvents([
+        ...events,
+        {
+          ...eventFormData,
+          id: Date.now(),
+          attendees: eventFormData.attendees || [],
+          organizer: eventFormData.organizer || '',
+          color: eventFormData.color || '#3b82f6',
+        } as CalendarEvent
+      ])
+    }
+    setShowEventForm(false)
+    setEventFormData({})
+  }
+  const handleFormCancel = () => {
+    setShowEventForm(false)
+    setEventFormData({})
   }
 
-  // Updated sample calendar events with all events before 4 PM
-  const events: CalendarEvent[] = [
-    {
-      id: 1,
-      title: "Team Meeting",
-      startTime: "09:00",
-      endTime: "10:00",
-      color: "bg-blue-500",
-      day: 1,
-      description: "Weekly team sync-up",
-      location: "Conference Room A",
-      attendees: ["John Doe", "Jane Smith", "Bob Johnson"],
-      organizer: "Alice Brown",
-    },
-    {
-      id: 2,
-      title: "Lunch with Sarah",
-      startTime: "12:30",
-      endTime: "13:30",
-      color: "bg-green-500",
-      day: 1,
-      description: "Discuss project timeline",
-      location: "Cafe Nero",
-      attendees: ["Sarah Lee"],
-      organizer: "You",
-    },
-    {
-      id: 3,
-      title: "Project Review",
-      startTime: "14:00",
-      endTime: "15:30",
-      color: "bg-purple-500",
-      day: 3,
-      description: "Q2 project progress review",
-      location: "Meeting Room 3",
-      attendees: ["Team Alpha", "Stakeholders"],
-      organizer: "Project Manager",
-    },
-    {
-      id: 4,
-      title: "Client Call",
-      startTime: "10:00",
-      endTime: "11:00",
-      color: "bg-yellow-500",
-      day: 2,
-      description: "Quarterly review with major client",
-      location: "Zoom Meeting",
-      attendees: ["Client Team", "Sales Team"],
-      organizer: "Account Manager",
-    },
-    {
-      id: 5,
-      title: "Team Brainstorm",
-      startTime: "13:00",
-      endTime: "14:30",
-      color: "bg-indigo-500",
-      day: 4,
-      description: "Ideation session for new product features",
-      location: "Creative Space",
-      attendees: ["Product Team", "Design Team"],
-      organizer: "Product Owner",
-    },
-    {
-      id: 6,
-      title: "Product Demo",
-      startTime: "11:00",
-      endTime: "12:00",
-      color: "bg-pink-500",
-      day: 5,
-      description: "Showcase new features to stakeholders",
-      location: "Demo Room",
-      attendees: ["Stakeholders", "Dev Team"],
-      organizer: "Tech Lead",
-    },
-    {
-      id: 7,
-      title: "Marketing Meeting",
-      startTime: "13:00",
-      endTime: "14:00",
-      color: "bg-teal-500",
-      day: 6,
-      description: "Discuss Q3 marketing strategy",
-      location: "Marketing Office",
-      attendees: ["Marketing Team"],
-      organizer: "Marketing Director",
-    },
-    {
-      id: 8,
-      title: "Code Review",
-      startTime: "15:00",
-      endTime: "16:00",
-      color: "bg-cyan-500",
-      day: 7,
-      description: "Review pull requests for new feature",
-      location: "Dev Area",
-      attendees: ["Dev Team"],
-      organizer: "Senior Developer",
-    },
-    {
-      id: 9,
-      title: "Morning Standup",
-      startTime: "08:30",
-      endTime: "09:30", // Changed from "09:00" to "09:30"
-      color: "bg-blue-400",
-      day: 2,
-      description: "Daily team standup",
-      location: "Slack Huddle",
-      attendees: ["Development Team"],
-      organizer: "Scrum Master",
-    },
-    {
-      id: 10,
-      title: "Design Review",
-      startTime: "14:30",
-      endTime: "15:45",
-      color: "bg-purple-400",
-      day: 5,
-      description: "Review new UI designs",
-      location: "Design Lab",
-      attendees: ["UX Team", "Product Manager"],
-      organizer: "Lead Designer",
-    },
-    {
-      id: 11,
-      title: "Investor Meeting",
-      startTime: "10:30",
-      endTime: "12:00",
-      color: "bg-red-400",
-      day: 7,
-      description: "Quarterly investor update",
-      location: "Board Room",
-      attendees: ["Executive Team", "Investors"],
-      organizer: "CEO",
-    },
-    {
-      id: 12,
-      title: "Team Training",
-      startTime: "09:30",
-      endTime: "11:30",
-      color: "bg-green-400",
-      day: 4,
-      description: "New tool onboarding session",
-      location: "Training Room",
-      attendees: ["All Departments"],
-      organizer: "HR",
-    },
-    {
-      id: 13,
-      title: "Budget Review",
-      startTime: "13:30",
-      endTime: "15:00",
-      color: "bg-yellow-400",
-      day: 3,
-      description: "Quarterly budget analysis",
-      location: "Finance Office",
-      attendees: ["Finance Team", "Department Heads"],
-      organizer: "CFO",
-    },
-    {
-      id: 14,
-      title: "Client Presentation",
-      startTime: "11:00",
-      endTime: "12:30",
-      color: "bg-orange-400",
-      day: 6,
-      description: "Present new project proposal",
-      location: "Client Office",
-      attendees: ["Sales Team", "Client Representatives"],
-      organizer: "Account Executive",
-    },
-    {
-      id: 15,
-      title: "Product Planning",
-      startTime: "14:00",
-      endTime: "15:30",
-      color: "bg-pink-400",
-      day: 1,
-      description: "Roadmap discussion for Q3",
-      location: "Strategy Room",
-      attendees: ["Product Team", "Engineering Leads"],
-      organizer: "Product Manager",
-    },
-  ]
+  const togglePlay = () => {
+    setIsPlaying(!isPlaying)
+    // Here you would typically also control the actual audio playback
+  }
 
   // Sample calendar days for the week view
   const weekDays = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]
@@ -288,11 +249,6 @@ export default function Home() {
     { name: "Personal", color: "bg-purple-500" },
     { name: "Family", color: "bg-orange-500" },
   ]
-
-  const togglePlay = () => {
-    setIsPlaying(!isPlaying)
-    // Here you would typically also control the actual audio playback
-  }
 
   return (
     <div className="relative min-h-screen w-full overflow-hidden">
@@ -339,7 +295,14 @@ export default function Home() {
           style={{ animationDelay: "0.4s" }}
         >
           <div>
-            <button className="mb-6 flex items-center justify-center gap-2 rounded-full bg-blue-500 px-4 py-3 text-white w-full">
+            <button className="mb-6 flex items-center justify-center gap-2 rounded-full bg-blue-500 px-4 py-3 text-white w-full"
+              onClick={() => {
+                // Default to today if in current week, else first day of week
+                const weekDates = getWeekDates(weekStart)
+                const todayStr = formatDate(new Date())
+                const found = weekDates.find(d => formatDate(d) === todayStr)
+                handleAddEvent(found ? todayStr : formatDate(weekDates[0]))
+              }}>
               <Plus className="h-5 w-5" />
               <span>Create</span>
             </button>
@@ -347,12 +310,12 @@ export default function Home() {
             {/* Mini Calendar */}
             <div className="mb-6">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-white font-medium">{currentMonth}</h3>
+                <h3 className="text-white font-medium">{getMonthName(weekStart)}</h3>
                 <div className="flex gap-1">
-                  <button className="p-1 rounded-full hover:bg-white/20">
+                  <button className="p-1 rounded-full hover:bg-white/20" onClick={goToPrevWeek}>
                     <ChevronLeft className="h-4 w-4 text-white" />
                   </button>
-                  <button className="p-1 rounded-full hover:bg-white/20">
+                  <button className="p-1 rounded-full hover:bg-white/20" onClick={goToNextWeek}>
                     <ChevronRight className="h-4 w-4 text-white" />
                   </button>
                 </div>
@@ -365,14 +328,15 @@ export default function Home() {
                   </div>
                 ))}
 
-                {miniCalendarDays.map((day, i) => (
+                {getWeekDates(weekStart).map((date, i) => (
                   <div
                     key={i}
-                    className={`text-xs rounded-full w-7 h-7 flex items-center justify-center ${
-                      day === 5 ? "bg-blue-500 text-white" : "text-white hover:bg-white/20"
-                    } ${!day ? "invisible" : ""}`}
+                    className={`text-xs rounded-full w-7 h-7 flex items-center justify-center cursor-pointer ${
+                      date.getDate() === new Date().getDate() && date.getMonth() === new Date().getMonth() ? "bg-blue-500 text-white" : "text-white hover:bg-white/20"
+                    } ${new Date() > date ? "line-through text-white/50" : ""}`}
+                    onClick={() => handleAddEvent(formatDate(date))}
                   >
-                    {day}
+                    {date.getDate()}
                   </div>
                 ))}
               </div>
@@ -406,16 +370,16 @@ export default function Home() {
           {/* Calendar Controls */}
           <div className="flex items-center justify-between p-4 border-b border-white/20">
             <div className="flex items-center gap-4">
-              <button className="px-4 py-2 text-white bg-blue-500 rounded-md">Today</button>
+              <button onClick={goToToday} className="px-4 py-2 text-white bg-blue-500 rounded-md">Today</button>
               <div className="flex">
-                <button className="p-2 text-white hover:bg-white/10 rounded-l-md">
+                <button onClick={goToPrevWeek} className="p-2 text-white hover:bg-white/10 rounded-l-md">
                   <ChevronLeft className="h-5 w-5" />
                 </button>
-                <button className="p-2 text-white hover:bg-white/10 rounded-r-md">
+                <button onClick={goToNextWeek} className="p-2 text-white hover:bg-white/10 rounded-r-md">
                   <ChevronRight className="h-5 w-5" />
                 </button>
               </div>
-              <h2 className="text-xl font-semibold text-white">{currentDate}</h2>
+              <h2 className="text-xl font-semibold text-white">{getMonthName(weekStart)}</h2>
             </div>
 
             <div className="flex items-center gap-2 rounded-md p-1">
@@ -446,13 +410,11 @@ export default function Home() {
               {/* Week Header */}
               <div className="grid grid-cols-8 border-b border-white/20">
                 <div className="p-2 text-center text-white/50 text-xs"></div>
-                {weekDays.map((day, i) => (
+                {getWeekDates(weekStart).map((date, i) => (
                   <div key={i} className="p-2 text-center border-l border-white/20">
-                    <div className="text-xs text-white/70 font-medium">{day}</div>
-                    <div
-                      className={`text-lg font-medium mt-1 text-white ${weekDates[i] === 5 ? "bg-blue-500 rounded-full w-8 h-8 flex items-center justify-center mx-auto" : ""}`}
-                    >
-                      {weekDates[i]}
+                    <div className="text-xs text-white/70 font-medium">{weekDays[date.getDay()]}</div>
+                    <div className={`text-lg font-medium mt-1 text-white ${date.getDate() === today.getDate() && date.getMonth() === today.getMonth() && date.getFullYear() === today.getFullYear() ? "bg-blue-500 rounded-full w-8 h-8 flex items-center justify-center mx-auto" : ""}`}>
+                      {date.getDate()}
                     </div>
                   </div>
                 ))}
@@ -468,31 +430,56 @@ export default function Home() {
                     </div>
                   ))}
                 </div>
-
                 {/* Days Columns */}
-                {Array.from({ length: 7 }).map((_, dayIndex) => (
+                {getWeekDates(weekStart).map((date, dayIndex) => (
                   <div key={dayIndex} className="border-l border-white/20 relative">
                     {timeSlots.map((_, timeIndex) => (
                       <div key={timeIndex} className="h-20 border-b border-white/10"></div>
                     ))}
-
-                    {/* Events */}
+                    {/* Events for this date */}
                     {events
-                      .filter((event) => event.day === dayIndex + 1)
+                      .filter(event => event.date === formatDate(date))
                       .map((event, i) => {
                         const eventStyle = calculateEventStyle(event.startTime, event.endTime)
+                        const textColor = isColorLight(event.color) ? '#222' : '#fff';
                         return (
                           <div
                             key={i}
-                            className={`absolute ${event.color} rounded-md p-2 text-white text-xs shadow-md cursor-pointer transition-all duration-200 ease-in-out hover:translate-y-[-2px] hover:shadow-lg`}
+                            className={`absolute rounded-md p-2 text-xs shadow-md cursor-pointer transition-all duration-200 ease-in-out hover:translate-y-[-2px] hover:shadow-lg`}
                             style={{
                               ...eventStyle,
                               left: "4px",
                               right: "4px",
+                              backgroundColor: event.color || '#3b82f6',
+                              color: textColor,
                             }}
                             onClick={() => handleEventClick(event)}
                           >
-                            <div className="font-medium">{event.title}</div>
+                            <div className="font-medium flex justify-between items-center gap-2">
+                              <span>{event.title}</span>
+                              <span className="flex gap-1 ml-2">
+                                <button
+                                  className="hover:bg-white/20 rounded p-1"
+                                  title="Edit"
+                                  onClick={e => {
+                                    e.stopPropagation();
+                                    handleEditEvent(event);
+                                  }}
+                                >
+                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536M9 13h3l8-8a2.828 2.828 0 00-4-4l-8 8v3zm0 0v3h3" /></svg>
+                                </button>
+                                <button
+                                  className="hover:bg-white/20 rounded p-1"
+                                  title="Delete"
+                                  onClick={e => {
+                                    e.stopPropagation();
+                                    handleDeleteEvent(event.id);
+                                  }}
+                                >
+                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                </button>
+                              </span>
+                            </div>
                             <div className="opacity-80 text-[10px] mt-1">{`${event.startTime} - ${event.endTime}`}</div>
                           </div>
                         )
@@ -566,7 +553,7 @@ export default function Home() {
                 </p>
                 <p className="flex items-center">
                   <Calendar className="mr-2 h-5 w-5" />
-                  {`${weekDays[selectedEvent.day - 1]}, ${weekDates[selectedEvent.day - 1]} ${currentMonth}`}
+                  {selectedEvent.date}
                 </p>
                 <p className="flex items-start">
                   <Users className="mr-2 h-5 w-5 mt-1" />
@@ -591,6 +578,147 @@ export default function Home() {
                   Close
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Event Form - New Feature */}
+        {showEventForm && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white p-0 flex flex-col rounded-2xl shadow-2xl max-w-lg w-full mx-4 max-h-[90vh] overflow-hidden border-2 border-blue-300 relative animate-fade-in">
+              <button
+                className="absolute top-4 right-4 text-gray-400 hover:text-blue-500 transition-colors text-xl z-10"
+                onClick={handleFormCancel}
+                aria-label="Close"
+              >
+                <X className="h-6 w-6" />
+              </button>
+              <h3 className="text-2xl font-bold mb-6 text-blue-700 flex items-center gap-2 px-8 pt-8">
+                <Calendar className="h-6 w-6 text-blue-400" />
+                Event Details
+              </h3>
+              <form onSubmit={handleFormSubmit} className="flex-1 flex flex-col overflow-y-auto space-y-5 px-8 pb-4">
+                <div>
+                  <label className="block text-sm font-semibold text-blue-700 mb-1">Title</label>
+                  <input
+                    type="text"
+                    name="title"
+                    value={eventFormData.title}
+                    onChange={handleFormChange}
+                    className="block w-full rounded-lg border border-blue-200 shadow-sm focus:ring-2 focus:ring-blue-400 focus:outline-none px-4 py-2 bg-blue-50 text-blue-900 placeholder:text-blue-300"
+                    required
+                    placeholder="Event title"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-blue-700 mb-1">Description</label>
+                  <textarea
+                    name="description"
+                    value={eventFormData.description}
+                    onChange={handleFormChange}
+                    className="block w-full rounded-lg border border-blue-200 shadow-sm focus:ring-2 focus:ring-blue-400 focus:outline-none px-4 py-2 bg-blue-50 text-blue-900 placeholder:text-blue-300"
+                    rows={2}
+                    placeholder="Event description"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-blue-700 mb-1">Start Time</label>
+                    <input
+                      type="time"
+                      name="startTime"
+                      value={eventFormData.startTime}
+                      onChange={handleFormChange}
+                      className="block w-full rounded-lg border border-blue-200 shadow-sm focus:ring-2 focus:ring-blue-400 focus:outline-none px-4 py-2 bg-blue-50 text-blue-900"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-blue-700 mb-1">End Time</label>
+                    <input
+                      type="time"
+                      name="endTime"
+                      value={eventFormData.endTime}
+                      onChange={handleFormChange}
+                      className="block w-full rounded-lg border border-blue-200 shadow-sm focus:ring-2 focus:ring-blue-400 focus:outline-none px-4 py-2 bg-blue-50 text-blue-900"
+                      required
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-blue-700 mb-1">Date</label>
+                    <input
+                      type="date"
+                      name="date"
+                      value={eventFormData.date || ''}
+                      onChange={handleFormChange}
+                      className="block w-full rounded-lg border border-blue-200 shadow-sm focus:ring-2 focus:ring-blue-400 focus:outline-none px-4 py-2 bg-blue-50 text-blue-900"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-blue-700 mb-1">Color</label>
+                    <input
+                      type="color"
+                      name="color"
+                      value={eventFormData.color}
+                      onChange={handleFormChange}
+                      className="block w-12 h-10 rounded-lg border-2 border-blue-200 bg-blue-50 cursor-pointer"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-blue-700 mb-1">Location</label>
+                  <input
+                    type="text"
+                    name="location"
+                    value={eventFormData.location}
+                    onChange={handleFormChange}
+                    className="block w-full rounded-lg border border-blue-200 shadow-sm focus:ring-2 focus:ring-blue-400 focus:outline-none px-4 py-2 bg-blue-50 text-blue-900 placeholder:text-blue-300"
+                    placeholder="Event location"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-blue-700 mb-1">Attendees</label>
+                    <input
+                      type="text"
+                      name="attendees"
+                      value={eventFormData.attendees?.join(", ")}
+                      onChange={(e) => setEventFormData({ ...eventFormData, attendees: e.target.value.split(", ") })}
+                      className="block w-full rounded-lg border border-blue-200 shadow-sm focus:ring-2 focus:ring-blue-400 focus:outline-none px-4 py-2 bg-blue-50 text-blue-900 placeholder:text-blue-300"
+                      placeholder="Enter emails separated by commas"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-blue-700 mb-1">Organizer</label>
+                    <input
+                      type="text"
+                      name="organizer"
+                      value={eventFormData.organizer}
+                      onChange={handleFormChange}
+                      className="block w-full rounded-lg border border-blue-200 shadow-sm focus:ring-2 focus:ring-blue-400 focus:outline-none px-4 py-2 bg-blue-50 text-blue-900 placeholder:text-blue-300"
+                      placeholder="Organizer name"
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2 mt-6 bg-white pt-4 sticky bottom-0 z-10">
+                  <button
+                    type="button"
+                    onClick={handleFormCancel}
+                    className="px-5 py-2 rounded-lg bg-gray-100 text-blue-700 font-semibold hover:bg-gray-200 transition-colors shadow-sm"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2 rounded-lg bg-blue-500 text-white font-semibold hover:bg-blue-600 transition-colors shadow-md"
+                  >
+                    Save Event
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         )}
