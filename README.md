@@ -25,8 +25,8 @@ A modern, interactive calendar web application built with Next.js and Tailwind C
 
 1. **Clone the repository:**
    ```sh
-   git clone <your-repo-url>
-   cd calendar
+   git clone https://github.com/rafi983/My-Calendar
+   cd My-Calendar
    ```
 2. **Install dependencies:**
    ```sh
